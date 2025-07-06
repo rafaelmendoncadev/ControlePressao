@@ -3,6 +3,7 @@ import customtkinter as ctk
 from tkinter import ttk, messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from models import RegistroMedicao
 import database
 
 class App(ctk.CTk):
@@ -82,7 +83,7 @@ class App(ctk.CTk):
                         font=("Roboto", 10, "bold"))
 
         self.tabela = ttk.Treeview(self.frame_principal, 
-                                     columns=("ID", "Data/Hora", "Sistólica", "Diastólica", "Pulso", "Glicose"), 
+                                     columns=("ID", "Data/Hora", "Sistólica", "Diastólica", "Pulso", "Glicose", "Classificação"), 
                                      show='headings')
         self.tabela.heading("ID", text="ID")
         self.tabela.heading("Data/Hora", text="Data/Hora")
@@ -90,6 +91,7 @@ class App(ctk.CTk):
         self.tabela.heading("Diastólica", text="Diastólica (mmHg)")
         self.tabela.heading("Pulso", text="Pulso (bpm)")
         self.tabela.heading("Glicose", text="Glicose (mg/dL)")
+        self.tabela.heading("Classificação", text="Classificação")
 
         self.tabela.column("ID", width=40, anchor="center")
         self.tabela.column("Data/Hora", width=150, anchor="center")
@@ -97,8 +99,16 @@ class App(ctk.CTk):
         self.tabela.column("Diastólica", width=120, anchor="center")
         self.tabela.column("Pulso", width=100, anchor="center")
         self.tabela.column("Glicose", width=120, anchor="center")
+        self.tabela.column("Classificação", width=120, anchor="center")
 
         self.tabela.grid(row=1, column=0, padx=10, pady=10, sticky="nswe")
+
+        self.tabela.tag_configure('Normal', background='#4CAF50', foreground='white')
+        self.tabela.tag_configure('Elevada', background='#FFC107', foreground='black')
+        self.tabela.tag_configure('Hipertensão Estágio 1', background='#FF9800', foreground='black')
+        self.tabela.tag_configure('Hipertensão Estágio 2', background='#F44336', foreground='white')
+        self.tabela.tag_configure('Crise Hipertensiva', background='#B71C1C', foreground='white')
+        self.tabela.tag_configure('indefinida', background='#666666', foreground='white')
 
     def adicionar_registro(self):
         try:
@@ -108,17 +118,31 @@ class App(ctk.CTk):
             glicose_str = self.entry_glicose.get()
             glicose = int(glicose_str) if glicose_str else None
 
-            if sistolica <= 0 or diastolica <= 0 or pulso <= 0:
-                raise ValueError("Valores de pressão e pulso devem ser positivos.")
+            novo_registro = RegistroMedicao(
+                sistolica=sistolica,
+                diastolica=diastolica,
+                pulso=pulso,
+                glicose=glicose
+            )
+            
+            valido, mensagem = novo_registro.validar()
+            if not valido:
+                messagebox.showerror("Erro de Validação", mensagem)
+                return
 
-            database.adicionar_registro(sistolica, diastolica, pulso, glicose)
+            database.adicionar_registro(
+                novo_registro.sistolica,
+                novo_registro.diastolica,
+                novo_registro.pulso,
+                novo_registro.glicose
+            )
             messagebox.showinfo("Sucesso", "Registro adicionado com sucesso!")
             self.limpar_campos()
             self.atualizar_dados()
-        except ValueError as e:
-            messagebox.showerror("Erro de Entrada", f"Por favor, insira valores numéricos válidos. {e}")
+        except ValueError:
+            messagebox.showerror("Erro de Entrada", "Por favor, insira valores numéricos válidos.")
         except Exception as e:
-            messagebox.showerror("Erro", f"Ocorreu um erro: {e}")
+            messagebox.showerror("Erro", f"Ocorreu um erro inesperado: {e}")
 
     def deletar_registro(self):
         selecionado = self.tabela.focus()
@@ -145,8 +169,16 @@ class App(ctk.CTk):
         
         # Busca e insere os novos dados
         registros = database.buscar_registros()
-        for reg in registros:
-            self.tabela.insert("", "end", values=reg)
+        for reg_tuple in registros:
+            registro = RegistroMedicao.from_tuple(reg_tuple)
+            classificacao = registro.classificar_pressao()
+            
+            # Adiciona o nome da categoria aos valores
+            valores_tabela = list(reg_tuple)
+            valores_tabela.append(classificacao['descricao'])
+
+            # Usa a descrição como tag
+            self.tabela.insert("", "end", values=valores_tabela, tags=(classificacao['descricao'],))
         
         # Atualiza o gráfico
         self.atualizar_grafico(registros)
